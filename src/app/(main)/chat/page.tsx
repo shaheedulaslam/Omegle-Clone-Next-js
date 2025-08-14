@@ -28,161 +28,170 @@ export default function ChatPage() {
   const socketRef = useRef<any>(null);
 
   // Initialize WebRTC
-  const initWebRTC = async () => {
-    try {
-      const configuration = {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-          { urls: "stun:stun2.l.google.com:19302" },
-        ],
-      };
+const initWebRTC = async () => {
+  try {
+    const configuration = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+      ],
+    };
 
-      const pc = new RTCPeerConnection(configuration);
-      pcRef.current = pc;
+    const pc = new RTCPeerConnection(configuration);
+    pcRef.current = pc;
 
-      // Get local media stream
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-      setLocalStream(stream);
+    // Get local media
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
+    setLocalStream(stream);
 
-      // Add local stream tracks to peer connection
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream);
-      });
-
-      // Handle remote stream
-      pc.ontrack = (event) => {
-        const remoteStream = event.streams[0];
-        setRemoteStream(remoteStream);
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStream;
-        }
-      };
-
-      // ICE Candidate handling
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          socketRef.current?.emit("ice-candidate", {
-            to: partner?.id,
-            candidate: event.candidate,
-          });
-        }
-      };
-
-      // Connection state handling
-      pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState) {
-          setConnectionStatus(pc.iceConnectionState);
-          console.log("ICE connection state:", pc.iceConnectionState);
-        }
-      };
-
-      setPeerConnection(pc);
-      return pc;
-    } catch (error) {
-      console.error("Error initializing WebRTC:", error);
-      return null;
+    // **Attach to video element**
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = stream;
     }
-  };
+
+    // Add tracks to peer connection
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+    // Remote tracks
+    pc.ontrack = (event) => {
+      const remoteStream = event.streams[0];
+      setRemoteStream(remoteStream);
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+    };
+
+    // ICE candidate
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socketRef.current?.emit("ice-candidate", {
+          to: partner?.id,
+          candidate: event.candidate,
+        });
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      setConnectionStatus(pc.iceConnectionState);
+      console.log("ICE connection state:", pc.iceConnectionState);
+    };
+
+    setPeerConnection(pc);
+    return pc;
+  } catch (error) {
+    console.error("Error initializing WebRTC:", error);
+    return null;
+  }
+};
+
 
   useEffect(() => {
-    // Initialize socket connection
-    socketRef.current = connectSocket(userId);
+    if (!userId) return; // wait until we know the userId
 
-    socketRef.current.on("connect", () => {
-      setIsConnected(true);
-      const storedInterests = localStorage.getItem("userInterests");
-      const interests = storedInterests ? JSON.parse(storedInterests) : [];
-      socketRef.current.emit("request-chat", {
-        userId,
-        interests,
-        videoEnabled,
-        audioEnabled,
-      });
-    });
+    fetch("/api/chat")
+      .then(() => {
+        // Step 2: Connect the socket AFTER server is ready
+        socketRef.current = connectSocket(userId);
 
-    socketRef.current.on(
-      "paired",
-      async (data: {
-        partnerId: string;
-        partnerName?: string;
-        partnerInterests?: string[];
-      }) => {
-        setPartner({
-          id: data.partnerId,
-          name: data.partnerName,
-          interests: data.partnerInterests,
-        });
-
-        // Initialize WebRTC after pairing
-        const pc = await initWebRTC();
-        if (pc) {
-          // Create offer
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socketRef.current.emit("offer", {
-            to: data.partnerId,
-            offer,
+        socketRef.current.on("connect", () => {
+          setIsConnected(true);
+          const storedInterests = localStorage.getItem("userInterests");
+          const interests = storedInterests ? JSON.parse(storedInterests) : [];
+          socketRef.current.emit("request-chat", {
+            userId,
+            interests,
+            videoEnabled,
+            audioEnabled,
           });
-        }
-      }
-    );
-
-    socketRef.current.on(
-      "offer",
-      async (data: { from: string; offer: RTCSessionDescriptionInit }) => {
-        const pc = pcRef.current || (await initWebRTC());
-        if (!pc) return;
-
-        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socketRef.current.emit("answer", {
-          to: data.from,
-          answer,
         });
-      }
-    );
 
-    socketRef.current.on(
-      "answer",
-      async (data: { answer: RTCSessionDescriptionInit }) => {
-        if (pcRef.current) {
-          await pcRef.current.setRemoteDescription(
-            new RTCSessionDescription(data.answer)
-          );
-        }
-      }
-    );
+        socketRef.current.on(
+          "paired",
+          async (data: {
+            partnerId: string;
+            partnerName?: string;
+            partnerInterests?: string[];
+          }) => {
+            setPartner({
+              id: data.partnerId,
+              name: data.partnerName,
+              interests: data.partnerInterests,
+            });
 
-    socketRef.current.on(
-      "ice-candidate",
-      async (data: { candidate: RTCIceCandidateInit }) => {
-        if (pcRef.current) {
-          try {
-            await pcRef.current.addIceCandidate(
-              new RTCIceCandidate(data.candidate)
-            );
-          } catch (e) {
-            console.error("Error adding ICE candidate:", e);
+            // Initialize WebRTC after pairing
+            const pc = await initWebRTC();
+            if (pc) {
+              // Create offer
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              socketRef.current.emit("offer", {
+                to: data.partnerId,
+                offer,
+              });
+            }
           }
-        }
-      }
-    );
+        );
 
-    socketRef.current.on("message", (message: Message) => {
-      setMessages((prev) => [...prev, message]);
-    });
+        socketRef.current.on(
+          "offer",
+          async (data: { from: string; offer: RTCSessionDescriptionInit }) => {
+            const pc = pcRef.current || (await initWebRTC());
+            if (!pc) return;
 
-    socketRef.current.on("disconnected", () => {
-      handleDisconnect();
-    });
+            await pc.setRemoteDescription(
+              new RTCSessionDescription(data.offer)
+            );
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socketRef.current.emit("answer", {
+              to: data.from,
+              answer,
+            });
+          }
+        );
+
+        socketRef.current.on(
+          "answer",
+          async (data: { answer: RTCSessionDescriptionInit }) => {
+            if (pcRef.current) {
+              await pcRef.current.setRemoteDescription(
+                new RTCSessionDescription(data.answer)
+              );
+            }
+          }
+        );
+
+        socketRef.current.on(
+          "ice-candidate",
+          async (data: { candidate: RTCIceCandidateInit }) => {
+            if (pcRef.current) {
+              try {
+                await pcRef.current.addIceCandidate(
+                  new RTCIceCandidate(data.candidate)
+                );
+              } catch (e) {
+                console.error("Error adding ICE candidate:", e);
+              }
+            }
+          }
+        );
+
+        socketRef.current.on("message", (message: Message) => {
+          setMessages((prev) => [...prev, message]);
+        });
+
+        socketRef.current.on("disconnected", () => {
+          handleDisconnect();
+        });
+      })
+      .catch((err) => console.error("Error waking up socket server:", err));
 
     return () => {
-      handleDisconnect();
+      if (socketRef.current) {
+        handleDisconnect();
+      }
     };
   }, [userId]);
 
@@ -278,6 +287,10 @@ export default function ChatPage() {
       )
       .join(" ");
   };
+
+
+  console.log(remoteStream , "came");
+  
 
   return (
     <div className="flex flex-col h-screen bg-gray-100">

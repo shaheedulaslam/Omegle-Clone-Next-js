@@ -4,9 +4,12 @@ let socket: Socket;
 
 export const connectSocket = (userId: string) => {
   socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "", {
+    path: "/api/chat/socket.io",
     query: { userId },
     transports: ["websocket"],
   });
+  console.log(socket , "sockk");
+  
   return socket;
 };
 

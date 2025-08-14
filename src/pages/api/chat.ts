@@ -13,10 +13,20 @@ import type { Server as HTTPServer } from "http";
 import type { Socket as NetSocket } from "net";
 
 interface HttpServerWithIO extends ServerOptions {
-  io?: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
+  io?: Server<
+    ClientToServerEvents,
+    ServerToClientEvents,
+    InterServerEvents,
+    SocketData
+  >;
 }
 
-let io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData> | null = null;
+let io: Server<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+> | null = null;
 
 // Extend the socket to include the server with .io
 interface SocketServer extends HTTPServer {
@@ -35,13 +45,21 @@ const waitingUsers: WaitingUsers = {};
 const activePairs: ActivePairs = {};
 const reportedUsers: ReportedUsers = {};
 
-export default function handler(req: NextApiRequest, res: NextApiResponseWithSocket) {
+export default function handler(
+  req: NextApiRequest,
+  res: NextApiResponseWithSocket
+) {
   if (!io) {
     console.log("Initializing Socket.io...");
 
     const httpServer = res.socket.server;
 
-    io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
+    io = new Server<
+      ClientToServerEvents,
+      ServerToClientEvents,
+      InterServerEvents,
+      SocketData
+    >(httpServer, {
       path: "/api/chat/socket.io",
       addTrailingSlash: false,
     });
@@ -100,17 +118,15 @@ export default function handler(req: NextApiRequest, res: NextApiResponseWithSoc
         }
       });
 
-      socket.on(
-        "offer",
-        (data: { to: string; offer: RTCSessionDescriptionInit }) => {
-          if (waitingUsers[data.to]?.socket) {
-            waitingUsers[data.to].socket.emit("offer", {
-              from: userId,
-              offer: data.offer,
-            });
-          }
+      socket.on("offer", (data) => {
+        const partnerId = data.to || activePairs[userId];
+        if (partnerId && waitingUsers[partnerId]?.socket) {
+          waitingUsers[partnerId].socket.emit("offer", {
+            from: userId,
+            offer: data.offer,
+          });
         }
-      );
+      });
 
       socket.on(
         "answer",
