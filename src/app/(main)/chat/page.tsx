@@ -28,64 +28,69 @@ export default function ChatPage() {
   const socketRef = useRef<any>(null);
 
   // Initialize WebRTC
-const initWebRTC = async () => {
-  try {
-    const configuration = {
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-      ],
-    };
+  const initWebRTC = async () => {
+    try {
+      const configuration = {
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun2.l.google.com:19302" },
+        ],
+      };
 
-    const pc = new RTCPeerConnection(configuration);
-    pcRef.current = pc;
+      const pc = new RTCPeerConnection(configuration);
+      pcRef.current = pc;
 
-    // Get local media
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true,
-    });
-    setLocalStream(stream);
+      // Get local media stream
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      setLocalStream(stream);
 
-    // **Attach to video element**
-    if (localVideoRef.current) {
+if (localVideoRef.current) {
       localVideoRef.current.srcObject = stream;
     }
 
-    // Add tracks to peer connection
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      // Add local stream tracks to peer connection
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
+      });
 
-    // Remote tracks
-    pc.ontrack = (event) => {
-      const remoteStream = event.streams[0];
-      setRemoteStream(remoteStream);
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
-    };
+      // Handle remote stream
+      pc.ontrack = (event) => {
+        const remoteStream = event.streams[0];
+        setRemoteStream(remoteStream);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
+        }
+      };
 
-    // ICE candidate
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketRef.current?.emit("ice-candidate", {
-          to: partner?.id,
-          candidate: event.candidate,
-        });
-      }
-    };
+      // ICE Candidate handling
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socketRef.current?.emit("ice-candidate", {
+            to: partner?.id,
+            candidate: event.candidate,
+          });
+        }
+      };
 
-    pc.oniceconnectionstatechange = () => {
-      setConnectionStatus(pc.iceConnectionState);
-      console.log("ICE connection state:", pc.iceConnectionState);
-    };
+      // Connection state handling
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState) {
+          setConnectionStatus(pc.iceConnectionState);
+          console.log("ICE connection state:", pc.iceConnectionState);
+        }
+      };
 
-    setPeerConnection(pc);
-    return pc;
-  } catch (error) {
-    console.error("Error initializing WebRTC:", error);
-    return null;
-  }
-};
-
+      setPeerConnection(pc);
+      return pc;
+    } catch (error) {
+      console.error("Error initializing WebRTC:", error);
+      return null;
+    }
+  };
 
   useEffect(() => {
     if (!userId) return; // wait until we know the userId
@@ -287,10 +292,6 @@ const initWebRTC = async () => {
       )
       .join(" ");
   };
-
-
-  console.log(remoteStream , "came");
-  
 
   return (
     <div className="flex flex-col h-screen bg-gray-100">
