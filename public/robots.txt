@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Optional: Block specific folders (uncomment if needed)
+# Disallow: /admin/
+# Disallow: /private/
+
+Sitemap: https://mallumeet.netlify.app/sitemap.xml

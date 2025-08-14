@@ -30,9 +30,15 @@ export default function Home() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 p-4">
       <div className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden">
         <div className="p-8">
-          <h1 className="text-3xl font-bold text-center text-indigo-600 mb-6">
-            NextChat
+          <h1 className="text-3xl font-bold text-center text-indigo-600 mb-4">
+            MalluMeet – Talk to Strangers Online
           </h1>
+          <p className="text-gray-700 text-center mb-6">
+            Meet new people instantly! MalluMeet is a free online chat platform 
+            where you can <strong>talk with strangers</strong> from around the world 
+            based on shared interests. No sign-up required — just choose your interests 
+            and start chatting.
+          </p>
           
           <div className="mb-6">
             <label className="block text-gray-700 mb-2 font-medium">
@@ -51,6 +57,10 @@ export default function Home() {
             <label className="block text-gray-700 mb-2 font-medium">
               Select Your Interests
             </label>
+            <p className="text-sm text-gray-500 mb-3">
+              We’ll connect you with strangers who like the same topics. 
+              The more you select, the better your matches!
+            </p>
             <div className="flex flex-wrap gap-2">
               {interestsList.map((interest) => (
                 <button
@@ -73,13 +83,16 @@ export default function Home() {
             disabled={!selectedInterests.length}
             className="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Start Random Chat
+            Start Free Random Chat
           </button>
         </div>
         
         <div className="bg-gray-50 px-8 py-4 text-center">
           <p className="text-sm text-gray-600">
             By starting a chat, you agree to our community guidelines.
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Keywords: talk to strangers online, random video chat, chat app, meet new people
           </p>
         </div>
       </div>
