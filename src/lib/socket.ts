@@ -5,7 +5,7 @@ let socket: Socket | null = null;
 export const connectSocket = (userId: string) => {
   if (socket?.connected) return socket;
 
-  const url = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000";
+  const url = process.env.NEXT_PUBLIC_SOCKET_URL || "https://mallumeet-backend-js.onrender.com";
   socket = io(url, {
     query: { userId },
     transports: ["websocket"], // websocket first; polling fallback handled by server if needed
