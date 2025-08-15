@@ -3,6 +3,9 @@ import { useEffect, useState, useRef } from "react";
 import { connectSocket } from "@/lib/socket";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from "framer-motion";
+import Particles, { initParticlesEngine } from "@tsparticles/react";
+import { loadSlim } from "@tsparticles/slim";
+import type { Engine } from "@tsparticles/engine";
 
 type Message = {
   sender: string;
@@ -20,6 +23,7 @@ export default function ChatPage() {
   const [status, setStatus] = useState<RTCIceConnectionState | "disconnected">(
     "disconnected"
   );
+  const [init, setInit] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -28,12 +32,20 @@ export default function ChatPage() {
   const socketRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Initialize particles engine
+  useEffect(() => {
+    initParticlesEngine(async (engine: Engine) => {
+      await loadSlim(engine);
+    }).then(() => {
+      setInit(true);
+    });
+  }, []);
+
   const initWebRTC = async () => {
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
-        // For NATs/Carrier-grade NAT between strangers, consider TURN later.
       ],
     });
     pcRef.current = pc;
@@ -76,12 +88,11 @@ export default function ChatPage() {
   useEffect(() => {
     if (!userId) return;
 
-    fetch("/api/chat") // optional wake-up
+    fetch("/api/chat")
       .finally(() => {
         socketRef.current = connectSocket(userId);
 
         socketRef.current.on("connect", () => {
-          // ask for a partner
           const storedInterests = localStorage.getItem("userInterests");
           const interests = storedInterests ? JSON.parse(storedInterests) : [];
           socketRef.current.emit("request-chat", { userId, interests });
@@ -144,16 +155,14 @@ export default function ChatPage() {
 
         socketRef.current.on("disconnected", () => {
           cleanupCall(true);
-          requestNewPartner(); // auto start again
+          requestNewPartner();
         });
       });
 
     return () => {
-      // full cleanup on page leave
       if (socketRef.current) socketRef.current.disconnect();
       cleanupPeer();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   const cleanupPeer = () => {
@@ -219,21 +228,10 @@ export default function ChatPage() {
     socketRef.current?.emit("request-chat", { userId, interests });
   };
 
-  useEffect(() => {
-    if (socketRef.current) {
-      requestNewPartner();
-    }
-  }, []);
-
   const nextStranger = () => {
-    // tell server we’re leaving current partner
     if (socketRef.current) socketRef.current.emit("leave");
     cleanupCall();
     requestNewPartner();
-
-    // request a new one
-    const interests = JSON.parse(localStorage.getItem("userInterests") || "[]");
-    socketRef.current?.emit("request-chat", { userId, interests });
   };
 
   useEffect(() => {
@@ -241,122 +239,257 @@ export default function ChatPage() {
   }, [messages]);
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
-      <header className="bg-indigo-600 text-white p-4 flex justify-between items-center">
-        <div>
-          <h1 className="text-xl font-bold">
-            {partnerId ? "Chatting with Stranger" : "Looking for a partner..."}
-          </h1>
-          <p className="text-xs opacity-80">Status: {status}</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={nextStranger}
-            className="bg-white text-indigo-700 px-3 py-1 rounded hover:bg-indigo-50 text-sm"
-          >
-            Next
-          </button>
-        </div>
-      </header>
+    <div className="relative min-h-screen w-full overflow-hidden bg-gradient-to-br from-indigo-900 via-purple-900 to-gray-900">
+      {/* Background Particles */}
+      {init && (
+        <Particles
+          id="tsparticles"
+          options={{
+            particles: {
+              number: { value: 80 },
+              move: { enable: true, speed: 1.5 },
+              links: { enable: true },
+              size: { value: 3 },
+            },
+            detectRetina: true,
+          }}
+        />
+      )}
 
-      <div className="flex-1 relative bg-black">
-        {/* Remote */}
-        <AnimatePresence mode="wait">
-          {partnerId ? (
-            <motion.div
-              key={partnerId}
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
-              transition={{ duration: 0.5 }}
-              className="absolute inset-0 bg-black"
-            >
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              <div className="absolute bottom-4 right-4 w-32 h-48 rounded-lg overflow-hidden z-10 shadow-lg">
+      <div className="flex flex-col h-screen">
+        {/* Header */}
+        <motion.header 
+          initial={{ y: -50 }}
+          animate={{ y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="backdrop-blur-lg bg-white/5 border-b border-white/10 p-4 flex justify-between items-center"
+        >
+          <div>
+            <h1 className="text-xl font-bold text-white">
+              {partnerId ? (
+                <span className="flex items-center">
+                  <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
+                  Chatting with Stranger
+                </span>
+              ) : (
+                <span className="flex items-center">
+                  <span className="w-2 h-2 rounded-full bg-yellow-500 mr-2 animate-pulse"></span>
+                  Looking for a partner...
+                </span>
+              )}
+            </h1>
+            <p className="text-xs text-white/60">Status: {status}</p>
+          </div>
+          
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={nextStranger}
+            className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-lg hover:from-purple-700 hover:to-indigo-700 text-sm shadow-lg"
+          >
+            Next Stranger
+          </motion.button>
+        </motion.header>
+
+        {/* Video Area */}
+        <div className="flex-1 relative bg-black/70 overflow-hidden">
+          <AnimatePresence mode="wait">
+            {partnerId ? (
+              <motion.div
+                key={partnerId}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+                className="absolute inset-0"
+              >
                 <video
-                  ref={localVideoRef}
+                  ref={remoteVideoRef}
                   autoPlay
                   playsInline
-                  muted
-                  className="w-full h-full object-cover"
+                  className="absolute inset-0 w-full h-full object-cover"
                 />
-                <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-2 bg-black/50 p-1">
-                  <button
-                    onClick={toggleVideo}
-                    className={`px-2 py-1 rounded ${videoEnabled ? "bg-green-500" : "bg-red-500"} text-white text-xs`}
-                  >
-                    {videoEnabled ? "Cam On" : "Cam Off"}
-                  </button>
-                  <button
-                    onClick={toggleAudio}
-                    className={`px-2 py-1 rounded ${audioEnabled ? "bg-green-500" : "bg-red-500"} text-white text-xs`}
-                  >
-                    {audioEnabled ? "Mic On" : "Mic Off"}
-                  </button>
+                
+                {/* Local Video Preview */}
+                <motion.div 
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.3, duration: 0.5 }}
+                  className="absolute bottom-4 right-4 w-32 h-48 rounded-xl overflow-hidden z-10 shadow-2xl border-2 border-white/20"
+                >
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-2 bg-black/50 p-1">
+                    <motion.button
+                      whileTap={{ scale: 0.9 }}
+                      onClick={toggleVideo}
+                      className={`p-1 rounded-full ${videoEnabled ? "bg-green-500" : "bg-red-500"} text-white`}
+                    >
+                      {videoEnabled ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M4 5h2v6H4V5zm3 0h2v6H7V5zm3 0h2v6h-2V5zm3 0h3v6h-3V5zm1 8H5v2h10v-2z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </motion.button>
+                    <motion.button
+                      whileTap={{ scale: 0.9 }}
+                      onClick={toggleAudio}
+                      className={`p-1 rounded-full ${audioEnabled ? "bg-green-500" : "bg-red-500"} text-white`}
+                    >
+                      {audioEnabled ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </motion.button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="waiting"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 flex flex-col items-center justify-center text-white"
+              >
+                <motion.div
+                  animate={{ 
+                    rotate: 360,
+                    transition: { 
+                      duration: 8, 
+                      repeat: Infinity, 
+                      ease: "linear" 
+                    } 
+                  }}
+                  className="absolute w-64 h-64 rounded-full border-2 border-purple-500/30"
+                ></motion.div>
+                <motion.div
+                  animate={{ 
+                    rotate: -360,
+                    transition: { 
+                      duration: 12, 
+                      repeat: Infinity, 
+                      ease: "linear" 
+                    } 
+                  }}
+                  className="absolute w-80 h-80 rounded-full border-2 border-indigo-500/30"
+                ></motion.div>
+                <div className="relative z-10 text-center p-6 backdrop-blur-sm bg-white/5 rounded-xl border border-white/10">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-4 text-purple-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                  </svg>
+                  <h2 className="text-xl font-semibold mb-2">Looking for a match</h2>
+                  <p className="text-white/80">Finding someone who shares your interests...</p>
+                  <div className="mt-4 flex justify-center">
+                    <div className="h-2 w-2 rounded-full bg-purple-400 animate-pulse mx-1"></div>
+                    <div className="h-2 w-2 rounded-full bg-purple-400 animate-pulse mx-1 delay-75"></div>
+                    <div className="h-2 w-2 rounded-full bg-purple-400 animate-pulse mx-1 delay-150"></div>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="waiting"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 flex items-center justify-center bg-black text-white"
-            >
-              Waiting for stranger…
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
-      {/* Chat */}
-      <div className="h-1/3 overflow-y-auto p-4 space-y-2 bg-white border-t">
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`flex ${
-              m.sender === userId ? "justify-end" : "justify-start"
-            }`}
+        {/* Chat Area */}
+        <div className="h-1/3 flex flex-col">
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 backdrop-blur-sm bg-white/5">
+            {messages.length === 0 ? (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center justify-center h-full text-white/60"
+              >
+                {partnerId ? (
+                  <p>Say hello to your new chat partner!</p>
+                ) : (
+                  <p>Messages will appear here once connected</p>
+                )}
+              </motion.div>
+            ) : (
+              messages.map((m, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`flex ${
+                    m.sender === userId ? "justify-end" : "justify-start"
+                  }`}
+                >
+                  <div
+                    className={`max-w-xs md:max-w-md rounded-2xl px-4 py-3 ${
+                      m.sender === userId
+                        ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-br-none"
+                        : "bg-white/10 text-white rounded-bl-none"
+                    }`}
+                  >
+                    {m.sender === "system" ? (
+                      <p className="text-center text-sm text-white/70">{m.text}</p>
+                    ) : (
+                      <>
+                        <p>{m.text}</p>
+                        <p className="text-[10px] opacity-70 mt-1 text-right">
+                          {new Date(m.timestamp).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </motion.div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input Area */}
+          <motion.div 
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="p-3 backdrop-blur-lg bg-white/5 border-t border-white/10 flex gap-2"
           >
-            <div
-              className={`max-w-xs md:max-w-md rounded-lg px-3 py-2 ${
-                m.sender === userId
-                  ? "bg-indigo-500 text-white"
-                  : "bg-gray-200 text-gray-800"
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              placeholder="Type a message…"
+              className="flex-1 backdrop-blur-sm bg-white/10 border border-white/20 text-white rounded-full px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder-white/50"
+              disabled={!partnerId}
+            />
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={sendMessage}
+              disabled={!partnerId || !input.trim()}
+              className={`rounded-full px-4 py-3 ${
+                partnerId && input.trim()
+                  ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg"
+                  : "bg-white/10 text-white/50 cursor-not-allowed"
               }`}
             >
-              <p>{m.text}</p>
-              <p className="text-[10px] opacity-70 mt-1">
-                {new Date(m.timestamp).toLocaleTimeString()}
-              </p>
-            </div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="p-3 bg-white border-t flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-          placeholder="Type a message…"
-          className="flex-1 border rounded-full px-4 py-2 text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          disabled={!partnerId}
-        />
-        <button
-          onClick={sendMessage}
-          disabled={!partnerId || !input.trim()}
-          className="bg-indigo-600 text-white rounded-full px-4 py-2 disabled:opacity-50"
-        >
-          Send
-        </button>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
+              </svg>
+            </motion.button>
+          </motion.div>
+        </div>
       </div>
     </div>
   );
