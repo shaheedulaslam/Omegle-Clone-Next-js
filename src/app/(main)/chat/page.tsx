@@ -13,17 +13,25 @@ type Message = {
   timestamp: string;
 };
 
+type PartnerInfo = {
+  partnerId: string;
+  partnerName: string;
+  partnerInterests: string[];
+};
+
 export default function ChatPage() {
   const [userId] = useState(uuidv4());
   const [partnerId, setPartnerId] = useState<string | null>(null);
+  const [partnerName, setPartnerName] = useState<string>("Stranger");
+  const [partnerInterests, setPartnerInterests] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const [status, setStatus] = useState<RTCIceConnectionState | "disconnected">(
-    "disconnected"
-  );
+  const [status, setStatus] = useState<RTCIceConnectionState | "disconnected" | "connecting">("disconnected");
   const [init, setInit] = useState(false);
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [isSearching, setIsSearching] = useState(true);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -31,6 +39,7 @@ export default function ChatPage() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const socketRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const queueTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize particles engine
   useEffect(() => {
@@ -42,6 +51,7 @@ export default function ChatPage() {
   }, []);
 
   const initWebRTC = async () => {
+    setStatus("connecting");
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -50,39 +60,66 @@ export default function ChatPage() {
     });
     pcRef.current = pc;
 
-    // Local media
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true,
-    });
-    localStreamRef.current = stream;
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      localStreamRef.current = stream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
+      });
 
-    // Remote media
-    pc.ontrack = (e) => {
-      const remoteStream = e.streams[0];
-      if (remoteVideoRef.current && remoteStream) {
-        remoteVideoRef.current.srcObject = remoteStream;
-      }
-    };
+      pc.ontrack = (event) => {
+        if (!remoteVideoRef.current) return;
+        const remoteStream = event.streams[0];
+        if (remoteVideoRef.current.srcObject !== remoteStream) {
+          remoteVideoRef.current.srcObject = remoteStream;
+        }
+      };
 
-    pc.onicecandidate = (e) => {
-      if (e.candidate && partnerId && socketRef.current) {
-        socketRef.current.emit("ice-candidate", {
-          to: partnerId,
-          candidate: e.candidate,
-        });
-      }
-    };
+      pc.onicecandidate = (event) => {
+        if (event.candidate && partnerId && socketRef.current) {
+          socketRef.current.emit("ice-candidate", {
+            to: partnerId,
+            candidate: event.candidate,
+          });
+        }
+      };
 
-    pc.oniceconnectionstatechange = () => {
-      setStatus(pc.iceConnectionState || "disconnected");
-    };
+      pc.oniceconnectionstatechange = () => {
+        const connectionState = pc.iceConnectionState;
+        setStatus(connectionState || "disconnected");
+        if (connectionState === "failed") {
+          pc.restartIce();
+        }
+      };
 
-    return pc;
+      pc.onconnectionstatechange = () => {
+        console.log('Connection state:', pc.connectionState);
+      };
+
+      return pc;
+    } catch (err) {
+      console.error("Failed to get media devices", err);
+      setStatus("disconnected");
+      return null;
+    }
   };
+
+  useEffect(() => {
+    const remoteVideo = remoteVideoRef.current;
+    return () => {
+      if (remoteVideo && remoteVideo.srcObject) {
+        if (remoteVideo.srcObject instanceof MediaStream) {
+          remoteVideo.srcObject.getTracks().forEach((track) => track.stop());
+        }
+        remoteVideo.srcObject = null;
+      }
+    };
+  }, []);
 
   // Connect socket + handlers
   useEffect(() => {
@@ -96,58 +133,62 @@ export default function ChatPage() {
           const storedInterests = localStorage.getItem("userInterests");
           const interests = storedInterests ? JSON.parse(storedInterests) : [];
           socketRef.current.emit("request-chat", { userId, interests });
+          setIsSearching(true);
         });
 
-        socketRef.current.on("paired", async ({ partnerId: pid }: any) => {
+        socketRef.current.on("queue-position", ({ position }: { position: number }) => {
+          setQueuePosition(position);
+        });
+
+        socketRef.current.on("queue-timeout", () => {
+          setIsSearching(false);
+          setMessages(prev => [...prev, {
+            sender: "system",
+            text: "Couldn't find a partner. Please try again.",
+            timestamp: new Date().toISOString()
+          }]);
+        });
+
+        socketRef.current.on("paired", async ({ partnerId: pid, partnerName, partnerInterests }: PartnerInfo) => {
+          setIsSearching(false);
           setPartnerId(pid);
+          setPartnerName(partnerName);
+          setPartnerInterests(partnerInterests);
+          
           const pc = await initWebRTC();
-          const offer = await pc!.createOffer();
-          await pc!.setLocalDescription(offer);
+          if (!pc) return;
+          
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
           socketRef.current.emit("offer", { to: pid, offer });
         });
 
-        socketRef.current.on(
-          "offer",
-          async ({
-            from,
-            offer,
-          }: {
-            from: string;
-            offer: RTCSessionDescriptionInit;
-          }) => {
-            setPartnerId(from);
-            const pc = pcRef.current || (await initWebRTC());
-            await pc!.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await pc!.createAnswer();
-            await pc!.setLocalDescription(answer);
-            socketRef.current.emit("answer", { to: from, answer });
-          }
-        );
+        socketRef.current.on("offer", async ({ from, offer }: { from: string; offer: RTCSessionDescriptionInit }) => {
+          setPartnerId(from);
+          const pc = pcRef.current || (await initWebRTC());
+          if (!pc) return;
+          
+          await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socketRef.current.emit("answer", { to: from, answer });
+        });
 
-        socketRef.current.on(
-          "answer",
-          async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
-            if (pcRef.current) {
-              await pcRef.current.setRemoteDescription(
-                new RTCSessionDescription(answer)
-              );
-            }
+        socketRef.current.on("answer", async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
+          if (pcRef.current) {
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
           }
-        );
+        });
 
-        socketRef.current.on(
-          "ice-candidate",
-          async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
-            try {
-              if (pcRef.current)
-                await pcRef.current.addIceCandidate(
-                  new RTCIceCandidate(candidate)
-                );
-            } catch (err) {
-              console.error("addIceCandidate error:", err);
+        socketRef.current.on("ice-candidate", async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
+          try {
+            if (pcRef.current && candidate) {
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
             }
+          } catch (err) {
+            console.error("addIceCandidate error:", err);
           }
-        );
+        });
 
         socketRef.current.on("message", (message: Message) => {
           setMessages((prev) => [...prev, message]);
@@ -160,6 +201,7 @@ export default function ChatPage() {
       });
 
     return () => {
+      if (queueTimeoutRef.current) clearTimeout(queueTimeoutRef.current);
       if (socketRef.current) socketRef.current.disconnect();
       cleanupPeer();
     };
@@ -224,6 +266,7 @@ export default function ChatPage() {
   };
 
   const requestNewPartner = () => {
+    setIsSearching(true);
     const interests = JSON.parse(localStorage.getItem("userInterests") || "[]");
     socketRef.current?.emit("request-chat", { userId, interests });
   };
@@ -268,17 +311,28 @@ export default function ChatPage() {
             <h1 className="text-xl font-bold text-white">
               {partnerId ? (
                 <span className="flex items-center">
-                  <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
-                  Chatting with Stranger
+                  <span className={`w-2 h-2 rounded-full mr-2 ${
+                    status === "connected" ? "bg-green-500" : 
+                    status === "connecting" ? "bg-yellow-500" : "bg-red-500"
+                  } animate-pulse`}></span>
+                  Chatting with {partnerName}
                 </span>
               ) : (
                 <span className="flex items-center">
                   <span className="w-2 h-2 rounded-full bg-yellow-500 mr-2 animate-pulse"></span>
-                  Looking for a partner...
+                  {isSearching ? 
+                    `Searching... ${queuePosition ? `(#${queuePosition} in queue)` : ''}` : 
+                    "Looking for a partner"}
                 </span>
               )}
             </h1>
             <p className="text-xs text-white/60">Status: {status}</p>
+            {partnerInterests.length > 0 && (
+              <p className="text-xs text-white/60">
+                Shared interests: {partnerInterests.slice(0, 3).join(", ")}
+                {partnerInterests.length > 3 ? "..." : ""}
+              </p>
+            )}
           </div>
           
           <motion.button
@@ -286,8 +340,9 @@ export default function ChatPage() {
             whileTap={{ scale: 0.95 }}
             onClick={nextStranger}
             className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-lg hover:from-purple-700 hover:to-indigo-700 text-sm shadow-lg"
+            disabled={isSearching}
           >
-            Next Stranger
+            {isSearching ? "Cancel" : "Next Stranger"}
           </motion.button>
         </motion.header>
 
@@ -392,8 +447,16 @@ export default function ChatPage() {
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-4 text-purple-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                   </svg>
-                  <h2 className="text-xl font-semibold mb-2">Looking for a match</h2>
-                  <p className="text-white/80">Finding someone who shares your interests...</p>
+                  <h2 className="text-xl font-semibold mb-2">
+                    {isSearching ? "Looking for a match" : "Ready to connect"}
+                  </h2>
+                  <p className="text-white/80">
+                    {isSearching ? 
+                      (queuePosition ? 
+                        `Position in queue: ${queuePosition}` : 
+                        "Finding someone who shares your interests...") : 
+                      "Press the button to start searching"}
+                  </p>
                   <div className="mt-4 flex justify-center">
                     <div className="h-2 w-2 rounded-full bg-purple-400 animate-pulse mx-1"></div>
                     <div className="h-2 w-2 rounded-full bg-purple-400 animate-pulse mx-1 delay-75"></div>
@@ -435,11 +498,13 @@ export default function ChatPage() {
                     className={`max-w-xs md:max-w-md rounded-2xl px-4 py-3 ${
                       m.sender === userId
                         ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-br-none"
+                        : m.sender === "system"
+                        ? "bg-yellow-500/20 text-yellow-200 rounded-xl"
                         : "bg-white/10 text-white rounded-bl-none"
                     }`}
                   >
                     {m.sender === "system" ? (
-                      <p className="text-center text-sm text-white/70">{m.text}</p>
+                      <p className="text-center text-sm">{m.text}</p>
                     ) : (
                       <>
                         <p>{m.text}</p>
