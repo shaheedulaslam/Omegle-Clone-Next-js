@@ -6,7 +6,7 @@ export const connectSocket = (userId: string) => {
   if (socket?.connected) return socket;
 
 
-  const url = process.env.NEXT_PUBLIC_SOCKET_URL || "https://mallumeet-backend-js.onrender.com";
+  const url = process.env.NEXT_PUBLIC_SOCKET_URL || "wss://mallumeet-backend-js.onrender.com";
 
     console.log(url ,"urrllll");
 
