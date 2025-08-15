@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     siteName: "Mallumeet",
     images: [
       {
-        url: "https://mallumeet.netlify.app/og-image.jpg", // Replace with actual image
+        url: "https://mallumeet.netlify.app/logo.png", // Replace with actual image
         width: 1200,
         height: 630,
         alt: "Mallumeet Chat with Strangers",
@@ -39,7 +39,7 @@ export const metadata: Metadata = {
     title: "Mallumeet - Talk with Strangers Online",
     description:
       "Mallumeet is a free online chat platform to meet and talk with strangers instantly.",
-    images: ["https://mallumeet.netlify.app/og-image.jpg"], // Replace with actual image
+    images: ["https://mallumeet.netlify.app/logo.png"], // Replace with actual image
   },
 };
 
@@ -51,6 +51,8 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <head>
+        <link rel="icon" href="/logo.png" type="image/png" />
+
         <meta
           name="google-site-verification"
           content="UwagtvATq-H_0ioBM6VrGThbBATf5bDOBsM28bPZbOs"

@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from "react";
 import { connectSocket } from "@/lib/socket";
 import { v4 as uuidv4 } from "uuid";
+import { motion, AnimatePresence } from "framer-motion";
 
 type Message = {
   sender: string;
@@ -16,7 +17,9 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const [status, setStatus] = useState<RTCIceConnectionState | "disconnected">("disconnected");
+  const [status, setStatus] = useState<RTCIceConnectionState | "disconnected">(
+    "disconnected"
+  );
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -29,7 +32,7 @@ export default function ChatPage() {
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" }
+        { urls: "stun:stun1.l.google.com:19302" },
         // For NATs/Carrier-grade NAT between strangers, consider TURN later.
       ],
     });
@@ -55,7 +58,10 @@ export default function ChatPage() {
 
     pc.onicecandidate = (e) => {
       if (e.candidate && partnerId && socketRef.current) {
-        socketRef.current.emit("ice-candidate", { to: partnerId, candidate: e.candidate });
+        socketRef.current.emit("ice-candidate", {
+          to: partnerId,
+          candidate: e.candidate,
+        });
       }
     };
 
@@ -81,7 +87,7 @@ export default function ChatPage() {
           socketRef.current.emit("request-chat", { userId, interests });
         });
 
-        socketRef.current.on("paired", async ({ partnerId: pid }:any) => {
+        socketRef.current.on("paired", async ({ partnerId: pid }: any) => {
           setPartnerId(pid);
           const pc = await initWebRTC();
           const offer = await pc!.createOffer();
@@ -89,28 +95,48 @@ export default function ChatPage() {
           socketRef.current.emit("offer", { to: pid, offer });
         });
 
-        socketRef.current.on("offer", async ({ from, offer }: {from : string , offer: RTCSessionDescriptionInit}) => {
-          setPartnerId(from);
-          const pc = pcRef.current || (await initWebRTC());
-          await pc!.setRemoteDescription(new RTCSessionDescription(offer));
-          const answer = await pc!.createAnswer();
-          await pc!.setLocalDescription(answer);
-          socketRef.current.emit("answer", { to: from, answer });
-        });
-
-        socketRef.current.on("answer", async ({ answer }: {answer: RTCSessionDescriptionInit}) => {
-          if (pcRef.current) {
-            await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+        socketRef.current.on(
+          "offer",
+          async ({
+            from,
+            offer,
+          }: {
+            from: string;
+            offer: RTCSessionDescriptionInit;
+          }) => {
+            setPartnerId(from);
+            const pc = pcRef.current || (await initWebRTC());
+            await pc!.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await pc!.createAnswer();
+            await pc!.setLocalDescription(answer);
+            socketRef.current.emit("answer", { to: from, answer });
           }
-        });
+        );
 
-        socketRef.current.on("ice-candidate", async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
-          try {
-            if (pcRef.current) await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-          } catch (err) {
-            console.error("addIceCandidate error:", err);
+        socketRef.current.on(
+          "answer",
+          async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
+            if (pcRef.current) {
+              await pcRef.current.setRemoteDescription(
+                new RTCSessionDescription(answer)
+              );
+            }
           }
-        });
+        );
+
+        socketRef.current.on(
+          "ice-candidate",
+          async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
+            try {
+              if (pcRef.current)
+                await pcRef.current.addIceCandidate(
+                  new RTCIceCandidate(candidate)
+                );
+            } catch (err) {
+              console.error("addIceCandidate error:", err);
+            }
+          }
+        );
 
         socketRef.current.on("message", (message: Message) => {
           setMessages((prev) => [...prev, message]);
@@ -118,6 +144,7 @@ export default function ChatPage() {
 
         socketRef.current.on("disconnected", () => {
           cleanupCall(true);
+          requestNewPartner(); // auto start again
         });
       });
 
@@ -150,7 +177,11 @@ export default function ChatPage() {
     if (partnerLeft) {
       setMessages((prev) => [
         ...prev,
-        { sender: "system", text: "Partner disconnected", timestamp: new Date().toISOString() }
+        {
+          sender: "system",
+          text: "Partner disconnected",
+          timestamp: new Date().toISOString(),
+        },
       ]);
     }
     setPartnerId(null);
@@ -159,7 +190,11 @@ export default function ChatPage() {
 
   const sendMessage = () => {
     if (!input.trim() || !partnerId || !socketRef.current) return;
-    const message: Message = { sender: userId, text: input.trim(), timestamp: new Date().toISOString() };
+    const message: Message = {
+      sender: userId,
+      text: input.trim(),
+      timestamp: new Date().toISOString(),
+    };
     socketRef.current.emit("message", { to: partnerId, message });
     setMessages((prev) => [...prev, message]);
     setInput("");
@@ -179,10 +214,23 @@ export default function ChatPage() {
     setAudioEnabled(track.enabled);
   };
 
+  const requestNewPartner = () => {
+    const interests = JSON.parse(localStorage.getItem("userInterests") || "[]");
+    socketRef.current?.emit("request-chat", { userId, interests });
+  };
+
+  useEffect(() => {
+    if (socketRef.current) {
+      requestNewPartner();
+    }
+  }, []);
+
   const nextStranger = () => {
     // tell server we’re leaving current partner
     if (socketRef.current) socketRef.current.emit("leave");
     cleanupCall();
+    requestNewPartner();
+
     // request a new one
     const interests = JSON.parse(localStorage.getItem("userInterests") || "[]");
     socketRef.current?.emit("request-chat", { userId, interests });
@@ -213,39 +261,80 @@ export default function ChatPage() {
 
       <div className="flex-1 relative bg-black">
         {/* Remote */}
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        {!partnerId && (
-          <div className="absolute inset-0 flex items-center justify-center text-white">
-            Waiting for partner…
-          </div>
-        )}
-
-        {/* Local */}
-        <div className="absolute bottom-4 right-4 w-32 h-48 rounded-lg overflow-hidden z-10 shadow-lg">
-          <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-          <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-2 bg-black/50 p-1">
-            <button onClick={toggleVideo} className={`px-2 py-1 rounded ${videoEnabled ? "bg-green-500" : "bg-red-500"} text-white text-xs`}>
-              {videoEnabled ? "Cam On" : "Cam Off"}
-            </button>
-            <button onClick={toggleAudio} className={`px-2 py-1 rounded ${audioEnabled ? "bg-green-500" : "bg-red-500"} text-white text-xs`}>
-              {audioEnabled ? "Mic On" : "Mic Off"}
-            </button>
-          </div>
-        </div>
+        <AnimatePresence mode="wait">
+          {partnerId ? (
+            <motion.div
+              key={partnerId}
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ duration: 0.5 }}
+              className="absolute inset-0 bg-black"
+            >
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute bottom-4 right-4 w-32 h-48 rounded-lg overflow-hidden z-10 shadow-lg">
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-2 bg-black/50 p-1">
+                  <button
+                    onClick={toggleVideo}
+                    className={`px-2 py-1 rounded ${videoEnabled ? "bg-green-500" : "bg-red-500"} text-white text-xs`}
+                  >
+                    {videoEnabled ? "Cam On" : "Cam Off"}
+                  </button>
+                  <button
+                    onClick={toggleAudio}
+                    className={`px-2 py-1 rounded ${audioEnabled ? "bg-green-500" : "bg-red-500"} text-white text-xs`}
+                  >
+                    {audioEnabled ? "Mic On" : "Mic Off"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="waiting"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 flex items-center justify-center bg-black text-white"
+            >
+              Waiting for stranger…
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Chat */}
       <div className="h-1/3 overflow-y-auto p-4 space-y-2 bg-white border-t">
         {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.sender === userId ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-xs md:max-w-md rounded-lg px-3 py-2 ${m.sender === userId ? "bg-indigo-500 text-white" : "bg-gray-200 text-gray-800"}`}>
+          <div
+            key={i}
+            className={`flex ${
+              m.sender === userId ? "justify-end" : "justify-start"
+            }`}
+          >
+            <div
+              className={`max-w-xs md:max-w-md rounded-lg px-3 py-2 ${
+                m.sender === userId
+                  ? "bg-indigo-500 text-white"
+                  : "bg-gray-200 text-gray-800"
+              }`}
+            >
               <p>{m.text}</p>
-              <p className="text-[10px] opacity-70 mt-1">{new Date(m.timestamp).toLocaleTimeString()}</p>
+              <p className="text-[10px] opacity-70 mt-1">
+                {new Date(m.timestamp).toLocaleTimeString()}
+              </p>
             </div>
           </div>
         ))}
@@ -261,7 +350,11 @@ export default function ChatPage() {
           className="flex-1 border rounded-full px-4 py-2 text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
           disabled={!partnerId}
         />
-        <button onClick={sendMessage} disabled={!partnerId || !input.trim()} className="bg-indigo-600 text-white rounded-full px-4 py-2 disabled:opacity-50">
+        <button
+          onClick={sendMessage}
+          disabled={!partnerId || !input.trim()}
+          className="bg-indigo-600 text-white rounded-full px-4 py-2 disabled:opacity-50"
+        >
           Send
         </button>
       </div>
