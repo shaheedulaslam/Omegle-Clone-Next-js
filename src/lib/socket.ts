@@ -12,7 +12,7 @@ export const connectSocket = (userId: string, name: any, interests: any) => {
 
     // Connection events
     socket.on("connect", () => {
-      console.log("Connected to signaling server:", socket?.id);
+      console.log("Connected to signaling server:", socket?.id , name , interests);
       // Join matchmaking queue
       socket?.emit("request-chat", { name, interests });
     });
