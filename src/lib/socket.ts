@@ -1,41 +1,60 @@
+// lib/socket.ts
 import { io, Socket } from "socket.io-client";
 
 let socket: Socket | null = null;
 
-export const connectSocket = (userId: string): Socket => {
-  // Reuse existing connection if available
-  if (socket?.connected) {
-    return socket;
+export const connectSocket = (userId: string, name: any, interests: any) => {
+  if (!socket) {
+    socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "wss://mallumeet-backend-js.onrender.com", {
+      query: { userId },
+      transports: ["websocket"],
+    });
+
+    // Connection events
+    socket.on("connect", () => {
+      console.log("Connected to signaling server:", socket?.id);
+      // Join matchmaking queue
+      socket?.emit("request-chat", { name, interests });
+    });
+
+    socket.on("queue-position", ({ position }) => {
+      console.log("Queue position:", position);
+    });
+
+    socket.on("queue-timeout", () => {
+      console.log("Timed out waiting for a partner.");
+    });
+
+    socket.on("paired", (data) => {
+      console.log("Paired with:", data);
+    });
+
+    socket.on("offer", ({ from, offer }) => {
+      console.log("Received offer from", from);
+      // Pass to your RTCPeerConnection
+    });
+
+    socket.on("answer", ({ from, answer }) => {
+      console.log("Received answer from", from);
+    });
+
+    socket.on("ice-candidate", ({ from, candidate }) => {
+      console.log("Received ICE candidate from", from);
+    });
+
+    socket.on("message", (msg) => {
+      console.log("New message:", msg);
+    });
+
+    socket.on("disconnected", () => {
+      console.log("Your partner disconnected.");
+    });
   }
-
-  const url = process.env.NEXT_PUBLIC_SOCKET_URL || "wss://mallumeet-backend-js.onrender.com";
-  
-  console.log("Connecting to Socket.IO server at:", url);
-
-  socket = io(url, {
-    query: { userId },
-    transports: ["websocket" , "polling"],
-  });
-
-  // Error handling
-  socket.on("connect_error", (err) => {
-    console.error("Socket connection error:", err.message);
-  });
-
-  socket.on("reconnect_attempt", (attempt) => {
-    console.log(`Reconnection attempt ${attempt}`);
-  });
-
-  socket.on("reconnect_failed", () => {
-    console.error("Socket reconnection failed");
-  });
 
   return socket;
 };
 
-export const getSocket = (): Socket | null => socket;
-
-export const disconnectSocket = (): void => {
+export const disconnectSocket = () => {
   if (socket) {
     socket.disconnect();
     socket = null;
