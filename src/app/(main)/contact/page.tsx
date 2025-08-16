@@ -32,6 +32,7 @@ export default function ContactPage() {
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitStatus(null);
+console.log(process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID , process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID ,  process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY , "service , temp , pubic");
 
     try {
       const result = await emailjs.send(
@@ -45,7 +46,9 @@ export default function ContactPage() {
         process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY!
       );
 
-      if (result.text === "OK") {
+
+
+      if (result.status) {
         setSubmitStatus({
           success: true,
           message: "Message sent successfully! We'll get back to you soon.",
