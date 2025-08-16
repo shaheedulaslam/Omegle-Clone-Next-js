@@ -32,21 +32,22 @@ export default function ContactPage() {
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitStatus(null);
-console.log(process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID , process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID ,  process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY , "service , temp , pubic");
+
+    const service_id = "service_mifwauc";
+    const temp_id = "template_s6ftplh";
+    const public_key = "tciWOCHRG_TjyPFaO";
 
     try {
       const result = await emailjs.send(
-        process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID!,
-        process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID!,
+        service_id!,
+        temp_id!,
         {
           name: formData.name,
           email: formData.email,
           message: formData.message,
         },
-        process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY!
+        public_key!
       );
-
-
 
       if (result.status) {
         setSubmitStatus({
