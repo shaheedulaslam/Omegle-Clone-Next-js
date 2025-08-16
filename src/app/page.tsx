@@ -6,6 +6,7 @@ import Particles, { initParticlesEngine } from "@tsparticles/react";
 import { loadSlim } from "@tsparticles/slim"; // Using slim version which is lighter
 import { motion, AnimatePresence } from "framer-motion";
 import type { Engine } from "@tsparticles/engine";
+import Link from "next/link";
 
 const interestsList = [
   { name: "Music", emoji: "🎵" },
@@ -230,6 +231,31 @@ export default function Home() {
           </div>
         </motion.div>
       </div>
+
+             {/* Footer */}
+        <footer className="w-full py-4 backdrop-blur-lg bg-white/5 border-t border-white/10">
+          <div className="container mx-auto px-4">
+            <div className="flex flex-col md:flex-row justify-between items-center">
+              <div className="text-white/70 text-sm mb-4 md:mb-0">
+                © {new Date().getFullYear()} MalluMeet. All rights reserved.
+              </div>
+              <div className="flex space-x-6">
+                <Link href="/about" className="text-white/70 hover:text-white transition-colors text-sm">
+                  About Us
+                </Link>
+                <Link href="/privacy" className="text-white/70 hover:text-white transition-colors text-sm">
+                  Privacy Policy
+                </Link>
+                <Link href="/terms" className="text-white/70 hover:text-white transition-colors text-sm">
+                  Terms of Service
+                </Link>
+                <Link href="/contact" className="text-white/70 hover:text-white transition-colors text-sm">
+                  Contact
+                </Link>
+              </div>
+            </div>
+          </div>
+        </footer>
     </div>
   );
 }
