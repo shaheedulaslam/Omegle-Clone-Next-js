@@ -98,7 +98,7 @@ export default function ContactPage() {
                 </div>
                 <div className="ml-4">
                   <h3 className="text-lg font-medium text-white">Email</h3>
-                  <p className="mt-1">shaheedulaslam061@gmail.com</p>
+                  <p className="mt-1">contactmallumeet@gmail.com</p>
                 </div>
               </div>
             </div>
