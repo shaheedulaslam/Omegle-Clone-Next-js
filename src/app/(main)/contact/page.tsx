@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import emailjs from "emailjs-com";
 
 export default function ContactPage() {
   const router = useRouter();
@@ -33,32 +34,28 @@ export default function ContactPage() {
     setSubmitStatus(null);
 
     try {
-      const response = await fetch("https://mallumeet-backend-js.onrender.com/api/contact", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const result = await emailjs.send(
+        process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID!,
+        process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID!,
+        {
+          name: formData.name,
+          email: formData.email,
+          message: formData.message,
         },
-        body: JSON.stringify(formData),
-      });
+        process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY!
+      );
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (result.text === "OK") {
         setSubmitStatus({
           success: true,
           message: "Message sent successfully! We'll get back to you soon.",
         });
         setFormData({ name: "", email: "", message: "" });
-      } else {
-        throw new Error(data.message || "Failed to send message");
       }
     } catch (error) {
       setSubmitStatus({
         success: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "An error occurred while sending your message",
+        message: "Failed to send message. Please try again.",
       });
     } finally {
       setIsSubmitting(false);
