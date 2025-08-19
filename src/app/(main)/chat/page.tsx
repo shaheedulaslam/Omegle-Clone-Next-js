@@ -50,7 +50,6 @@ export default function ChatPage() {
   const queueTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Perfect negotiation helpers
-  // https://w3c.github.io/webrtc-pc/#perfect-negotiation-example
   const makingOfferRef = useRef(false);
   const ignoreOfferRef = useRef(false);
   const isSettingRemoteAnswerPendingRef = useRef(false);
@@ -75,7 +74,14 @@ export default function ChatPage() {
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
+        // Added TURN server fallback for better connectivity
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
       ],
+      iceTransportPolicy: "all", // Try both relay and host candidates
     });
 
     pcRef.current = pc;
@@ -105,11 +111,12 @@ export default function ChatPage() {
 
     // Remote tracks
     pc.ontrack = (event) => {
-      const [remoteStream] = event.streams;
+      console.log("Received remote track:", event.track.kind);
+      const remoteStream = event.streams[0];
       if (remoteVideoRef.current && remoteStream) {
-        if (remoteVideoRef.current.srcObject !== remoteStream) {
-          remoteVideoRef.current.srcObject = remoteStream;
-        }
+        remoteVideoRef.current.srcObject = remoteStream;
+        // Ensure video element plays
+        remoteVideoRef.current.play().catch(e => console.warn("Remote video play warning:", e));
       }
     };
 
@@ -127,12 +134,16 @@ export default function ChatPage() {
       const cs = pc.iceConnectionState;
       setStatus(cs || "disconnected");
       console.log("[ICE] state:", cs);
-      if (cs === "failed") {
-        // Attempt ICE restart
+      
+      if (cs === "failed" || cs === "disconnected") {
         console.log("[ICE] restarting ICE");
-        pc.restartIce?.();
-        // Also trigger renegotiation
-        void negotiate("ice-failed-restart");
+        // Try to restart ICE
+        setTimeout(() => {
+          if (pcRef.current && (pcRef.current.iceConnectionState === "failed" || 
+              pcRef.current.iceConnectionState === "disconnected")) {
+            pcRef.current.restartIce?.();
+          }
+        }, 1000);
       }
     };
 
@@ -151,14 +162,32 @@ export default function ChatPage() {
   // ---- Negotiation helper (Perfect Negotiation)
   const negotiate = async (reason = "manual") => {
     const pc = pcRef.current;
-    if (!pc || !partnerId || !socketRef.current) return;
+    if (!pc || !partnerId || !socketRef.current) {
+      console.log("Cannot negotiate: missing pc, partnerId, or socket");
+      return;
+    }
+    
     try {
       makingOfferRef.current = true;
       console.log(`[NEGOTIATE] (${reason}) creating offer`);
+      
+      // Add this to ensure we have transceivers for all media types
+      if (pc.getTransceivers().length === 0) {
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach(track => {
+            pc.addTransceiver(track, { direction: 'sendrecv' });
+          });
+        } else {
+          // Add transceivers even if we don't have local media
+          pc.addTransceiver('video', { direction: 'recvonly' });
+          pc.addTransceiver('audio', { direction: 'recvonly' });
+        }
+      }
+      
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      console.log("[NEGOTIATE] sending offer to", partnerId);
       socketRef.current.emit("offer", { to: partnerId, offer });
-      console.log("[NEGOTIATE] sent offer");
     } catch (e) {
       console.error("[NEGOTIATE] error", e);
     } finally {
